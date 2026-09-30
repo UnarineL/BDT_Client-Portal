@@ -41,6 +41,50 @@
   var rows = [];
   var filter = { q: '', status: 'all' };
   var activeTab = 'overview';
+  var navigationReady = false;
+  var STAFF_UNLOCK_KEY = 'client_discovery_staff_unlocked';
+
+  function isStaffUnlocked() {
+    try { return sessionStorage.getItem(STAFF_UNLOCK_KEY) === '1'; }
+    catch (e) { return false; }
+  }
+
+  function setStaffUnlocked(value) {
+    try {
+      if (value) sessionStorage.setItem(STAFF_UNLOCK_KEY, '1');
+      else sessionStorage.removeItem(STAFF_UNLOCK_KEY);
+    } catch (e) {}
+  }
+
+  function replaceHistory(view, data) {
+    var state = Object.assign({ app: 'client-discovery', view: view }, data || {});
+    window.history.replaceState(state, '', 'admin.html');
+  }
+
+  function pushHistory(view, data) {
+    var state = Object.assign({ app: 'client-discovery', view: view }, data || {});
+    window.history.pushState(state, '', 'admin.html');
+  }
+
+  function handlePopState(e) {
+    var state = e.state;
+    if (!state || state.app !== 'client-discovery') return;
+    if (!isStaffUnlocked()) {
+      replaceHistory('login');
+      showLogin();
+      return;
+    }
+    if (state.view === 'list') showList(false);
+    else if (state.view === 'detail') showDetail(state.id, state.tab || 'overview', false);
+    else if (state.view === 'edit') {
+      if (state.id) {
+        sb.from('submissions').select('*').eq('id', state.id).single().then(function (res) {
+          if (res.error || !res.data) { showList(false); return; }
+          showEdit(res.data, false);
+        });
+      } else showEdit(null, false);
+    }
+  }
 
   /* ------------------------------ utilities ------------------------------ */
 
@@ -85,7 +129,7 @@
       h('div', { class: 'error-icon', 'aria-hidden': 'true' }, '!'),
       h('h1', { class: 'page-title' }, 'Something went wrong'),
       h('p', { class: 'hint' }, msg),
-      h('button', { class: 'btn ghost', type: 'button', onClick: showList }, 'Back to workspace')));
+      h('button', { class: 'btn ghost', type: 'button', onClick: function () { showList(false); } }, 'Back to workspace')));
   }
 
   function downloadText(name, text, type) {
@@ -177,7 +221,8 @@
         return;
       }
       userEmail = res.data && res.data.user ? res.data.user.email : email.value.trim();
-      enter();
+      setStaffUnlocked(true);
+      enter(true);
     }
     btn.addEventListener('click', go);
     pass.addEventListener('keydown', function (e) { if (e.key === 'Enter') go(); });
@@ -197,37 +242,54 @@
   }
 
   async function signOut() {
+    setStaffUnlocked(false);
     await sb.auth.signOut();
     userEmail = '';
     rows = [];
+    replaceHistory('login');
     showLogin();
   }
 
-  async function enter() {
+  async function enter(fromLogin) {
     var res = await sb.rpc('is_staff');
     if (res.error || !res.data) {
+      setStaffUnlocked(false);
       await sb.auth.signOut();
       userEmail = '';
+      replaceHistory('login');
       showLogin('This account does not have staff access.');
       return;
     }
-    showList();
+    if (fromLogin) replaceHistory('list');
+    showList(false);
   }
 
   async function init() {
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('pagehide', function () {
+      // Leaving the staff page clears the in-tab unlock. Supabase may keep
+      // its session, but returning through Staff access still requires login.
+      setStaffUnlocked(false);
+    });
+
     var res = await sb.auth.getSession();
     var session = res.data && res.data.session;
-    if (session) {
+    if (session && isStaffUnlocked()) {
       userEmail = session.user.email || '';
-      enter();
+      enter(false);
     } else {
+      if (session && !isStaffUnlocked()) await sb.auth.signOut();
+      replaceHistory('login');
       showLogin();
     }
   }
 
   /* -------------------------------- list -------------------------------- */
 
-  async function showList() {
+  async function showList(navigate) {
+    if (navigate === undefined) navigate = true;
+    if (navigate && navigationReady) pushHistory('list');
+    navigationReady = true;
     mount(shell(h('div', { class: 'loading-state' },
       h('span', { class: 'spinner', 'aria-hidden': 'true' }),
       h('span', null, 'Loading workspace...'))));
@@ -325,7 +387,7 @@
         h('div', { class: 'actions' },
           h('button', { class: 'btn', type: 'button', onClick: function () { showEdit(null); } }, '+ New entry'),
           exportBtn,
-          h('button', { class: 'btn ghost', type: 'button', onClick: showList }, 'Refresh'))),
+          h('button', { class: 'btn ghost', type: 'button', onClick: function () { showList(false); } }, 'Refresh'))),
       h('div', { class: 'stats-grid' },
         statCard('All', rows.length, 'all', filter.status === 'all'),
         statCard('New', counts.new, 'new', filter.status === 'new'),
@@ -373,8 +435,11 @@
     a.remove();
   }
 
-  async function showDetail(id, tab) {
+  async function showDetail(id, tab, navigate) {
     activeTab = tab || 'overview';
+    if (navigate === undefined) navigate = true;
+    if (navigate && navigationReady) pushHistory('detail', { id: id, tab: activeTab });
+    navigationReady = true;
     mount(shell(h('div', { class: 'loading-state' },
       h('span', { class: 'spinner', 'aria-hidden': 'true' }),
       h('span', null, 'Opening client workspace...'))));
@@ -503,7 +568,7 @@
       var res = await sb.from('submissions').delete().eq('id', rec.id);
       if (res.error) { toast('Could not delete this submission'); delBtn.disabled = false; return; }
       toast('Deleted');
-      showList();
+      showList(false);
     });
 
     var tabNames = [
@@ -518,7 +583,11 @@
         class: 'detail-tab' + (activeTab === tab[0] ? ' active' : ''),
         type: 'button',
         'aria-current': activeTab === tab[0] ? 'page' : null,
-        onClick: function () { activeTab = tab[0]; renderDetail(rec, urls); }
+        onClick: function () {
+          activeTab = tab[0];
+          pushHistory('detail', { id: rec.id, tab: activeTab });
+          renderDetail(rec, urls);
+        }
       }, tab[1]));
     });
 
@@ -563,7 +632,7 @@
 
     mount(shell(h('main', { class: 'workspace-main detail-workspace' },
       h('div', { class: 'detail-head' },
-        h('button', { class: 'back-link', type: 'button', onClick: showList }, '‹ Back to submissions'),
+        h('button', { class: 'back-link', type: 'button', onClick: function () { showList(false); } }, '‹ Back to submissions'),
         h('div', { class: 'detail-title-row' },
           h('div', null,
             h('p', { class: 'eyebrow' }, 'CLIENT PROJECT'),
@@ -579,8 +648,11 @@
 
   /* --------------------------- create / edit --------------------------- */
 
-  function showEdit(rec) {
+  function showEdit(rec, navigate) {
     var isNew = !rec;
+    if (navigate === undefined) navigate = true;
+    if (navigate && navigationReady) pushHistory('edit', { id: rec ? rec.id : null });
+    navigationReady = true;
     var id = isNew ? Q.uuid() : rec.id;
     var state = {
       answers: isNew ? { decl_date: Q.today() } : JSON.parse(JSON.stringify(rec.answers || {})),
@@ -597,7 +669,7 @@
     var cancelBtn = h('button', {
       class: 'btn ghost',
       type: 'button',
-      onClick: function () { if (isNew) showList(); else showDetail(id); }
+      onClick: function () { if (isNew) showList(false); else showDetail(id, 'files', false); }
     }, 'Cancel');
 
     saveBtn.addEventListener('click', async function () {
@@ -634,7 +706,8 @@
         if (res.error) throw res.error;
         if (state.removedPaths.length) await sb.storage.from(BUCKET).remove(state.removedPaths);
         toast(isNew ? 'Entry created' : 'Changes saved');
-        showDetail(id, isNew ? 'overview' : 'files');
+        showDetail(id, isNew ? 'overview' : 'files', false);
+        replaceHistory('detail', { id: id, tab: isNew ? 'overview' : 'files' });
       } catch (err) {
         console.error(err);
         status.textContent = 'Could not save. Check your connection and try again.';
@@ -645,7 +718,7 @@
 
     mount(shell(h('main', { class: 'workspace-main' },
       h('div', { class: 'edit-head' },
-        h('button', { class: 'back-link', type: 'button', onClick: function () { isNew ? showList() : showDetail(id); } }, '‹ Back'),
+        h('button', { class: 'back-link', type: 'button', onClick: function () { isNew ? showList(false) : showDetail(id, 'files', false); } }, '‹ Back'),
         h('div', null,
           h('p', { class: 'eyebrow' }, isNew ? 'NEW PROJECT' : 'EDIT PROJECT'),
           h('h1', { class: 'page-title' }, isNew ? 'New client entry' : 'Edit ' + (rec.company_name || 'submission')),
