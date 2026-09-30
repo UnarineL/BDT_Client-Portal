@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Website project questionnaire</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <noscript><p style="padding:24px">This form needs JavaScript. Please enable it and reload the page.</p></noscript>
+
+  <div id="topbar" class="bar">
+    <div class="bar-in">
+      <div class="bar-pct" id="pct">0%</div>
+      <div class="track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Questionnaire progress" id="track">
+        <div class="fill" id="fill" style="width:0%"></div>
+      </div>
+      <div class="bar-save" id="saved">Saved automatically</div>
+    </div>
+  </div>
+
+  <main class="wrap" id="app">
+    <div class="banner hidden" id="setup-warning" hidden>
+      Setup needed: open <strong>config.js</strong> and add your Supabase URL and key. Clients won't be able to submit until you do.
+    </div>
+
+    <header class="hero">
+      <div id="brand"></div>
+      <h1>Website project questionnaire</h1>
+      <p>
+        Tell us about your business, your website and your current domain and email setup. Most people finish in
+        about 15 minutes. Your answers save on this device as you go, so you can close this page and come back later.
+      </p>
+      <p class="note">
+        Please don't type passwords anywhere in this form. Names and contact details are enough. We'll arrange
+        secure access later.
+      </p>
+    </header>
+
+    <div id="form"></div>
+
+    <!-- Spam trap: real people never see or fill this in -->
+    <div class="hp" aria-hidden="true">
+      <label>Leave this field empty <input type="text" id="hp" tabindex="-1" autocomplete="off"></label>
+    </div>
+
+    <section class="sec submit-sec">
+      <div class="sec-h"></div>
+      <div class="sec-b">
+        <div class="banner" id="banner" role="alert" hidden></div>
+        <div class="hint" id="upload-status" hidden></div>
+        <button class="btn big" id="submit" type="button">Submit questionnaire</button>
+      </div>
+    </section>
+  </main>
+
+  <main class="wrap center" id="thanks" hidden>
+    <div class="thanks">
+      <h1>Submitted. Thank you.</h1>
+      <p id="thanks-text"></p>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="questionnaire.js"></script>
+  <script src="form.js"></script>
+</body>
+</html>
