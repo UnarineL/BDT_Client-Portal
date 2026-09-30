@@ -143,3 +143,10 @@ select{width:auto;margin-top:0;padding:9px 10px}
   .row-meta{align-items:flex-start;text-align:left}
 }
 @media(prefers-reduced-motion:reduce){.fill{transition:none}}
+
+
+/* portal footer */
+.portal-footer{max-width:900px;margin:10px auto 40px;padding:18px 24px;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:16px;color:var(--muted);font-size:13px}
+.portal-footer a{color:var(--muted);text-decoration:none}
+.portal-footer a:hover{text-decoration:underline;color:var(--ink)}
+@media(max-width:560px){.portal-footer{padding-left:18px;padding-right:18px}}

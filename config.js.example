@@ -1,0 +1,7 @@
+/* Copy these values into config.js before deploying. */
+window.APP_CONFIG = {
+  SUPABASE_URL: 'https://YOUR-PROJECT-ID.supabase.co',
+  SUPABASE_ANON_KEY: 'YOUR-ANON-PUBLIC-KEY',
+  BRAND_NAME: '',
+  LOGO_URL: ''
+};

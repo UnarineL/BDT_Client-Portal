@@ -19,7 +19,9 @@
 
   if (!configured || !window.supabase) {
     app.appendChild(h('div', { class: 'wrap admin' },
-      h('div', { class: 'banner' }, 'Setup needed: open config.js and add your Supabase URL and key.')));
+      h('div', { class: 'banner' }, 'Supabase is not connected yet. Open config.js and add the Project URL and anon / publishable key from your Supabase project.'),
+      h('p', { class: 'hint' }, 'Use the anon / publishable key only. Never put the service_role / secret key in this site.'),
+      h('p', null, h('a', { href: 'index.html' }, 'Back to Client Discovery Portal'))));
     return;
   }
 
@@ -63,7 +65,7 @@
   function shell(content) {
     return h('div', { class: 'wrap admin' },
       h('div', { class: 'topbar' },
-        h('div', { class: 'topbar-title' }, 'Client questionnaires'),
+        h('div', { class: 'topbar-title' }, 'Client Discovery Portal · Staff'),
         h('div', { class: 'topbar-right' },
           userEmail ? h('span', { class: 'hint' }, userEmail) : null,
           userEmail ? h('button', { class: 'btn ghost small', type: 'button', onClick: signOut }, 'Sign out') : null)),
