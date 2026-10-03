@@ -190,8 +190,10 @@ to anon;
 -- 4. Database grants + RLS
 alter table public.submissions enable row level security;
 
+-- Payments is created in section 6 below, so its privileges are
+-- configured after the table exists. Do not reference it here.
 revoke all
-on table public.staff, public.submissions, public.payments
+on table public.staff, public.submissions
 from anon, authenticated;
 
 grant insert on public.submissions to anon;
