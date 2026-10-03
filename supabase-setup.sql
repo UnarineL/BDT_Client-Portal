@@ -19,7 +19,7 @@ language sql
 stable
 security definer
 set search_path = public
-as $$
+as $$$
   select exists (
     select 1
     from public.staff s
@@ -129,7 +129,7 @@ begin
     old.status, new.status
     using errcode = 'P0001';
 end;
-$;
+$$;
 
 drop trigger if exists submissions_status_transition on public.submissions;
 
