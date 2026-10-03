@@ -316,8 +316,11 @@
       console.error(err);
 
       showBanner(
-        "We couldn't send your answers. Please check your connection and try again. Your answers are still on this page."
-      );
+  "Submission failed: " +
+  (err && err.message
+    ? err.message
+    : String(err))
+);
 
       uploadStatus.hidden = true;
 
