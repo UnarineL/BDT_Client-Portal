@@ -700,12 +700,7 @@
     var cancel = h('button', { class: 'btn ghost', type: 'button', onClick: onSaved }, 'Cancel');
 
     async function resolveExistingAttempt() {
-      try {
-        return await findPaymentAttempt(paymentAttemptId);
-      } catch (e) {
-        console.error('Could not verify payment attempt', e);
-        return null;
-      }
+      return await findPaymentAttempt(paymentAttemptId);
     }
 
     save.addEventListener('click', async function () {
@@ -761,7 +756,14 @@
         }).select().single();
 
         if (r.error) {
-          var verified = await resolveExistingAttempt();
+          var verified;
+          try {
+            verified = await resolveExistingAttempt();
+          } catch (verifyError) {
+            console.error('Could not determine whether payment was recorded', verifyError);
+            throw new Error('The payment result could not be confirmed. The proof was kept safely. Retry this same payment instead of creating a new one.');
+          }
+
           if (verified) {
             toast('Payment was already recorded. No duplicate created.');
             onSaved();
@@ -777,7 +779,7 @@
           }
 
           if (cleanupError) {
-            throw new Error('The payment was not confirmed and the uploaded proof could not be cleaned up. Keep this window open and retry.');
+            throw new Error('The payment was not recorded, but the uploaded proof could not be cleaned up. Keep this window open and retry.');
           }
 
           throw new Error('The payment record was not saved. The uploaded proof was cleaned up, so you can safely retry.');
