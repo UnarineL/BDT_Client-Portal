@@ -1,0 +1,1068 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  >
+
+  <title>BDT Security Test Harness</title>
+
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family:
+        Inter,
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: #0d1117;
+      color: #e6edf3;
+      min-height: 100vh;
+    }
+
+    .shell {
+      width: min(900px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 32px 0 60px;
+    }
+
+    header {
+      margin-bottom: 28px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      letter-spacing: -0.5px;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: #8b949e;
+      line-height: 1.5;
+    }
+
+    .warning {
+      margin-top: 18px;
+      padding: 14px 16px;
+      border: 1px solid #6e4b00;
+      border-radius: 10px;
+      background: #211a0b;
+      color: #f2cc60;
+      line-height: 1.5;
+    }
+
+    .config {
+      margin-top: 20px;
+      padding: 16px;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      background: #161b22;
+    }
+
+    .config strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .config-status {
+      color: #8b949e;
+      font-size: 14px;
+    }
+
+    .test-target {
+      margin: 24px 0;
+      padding: 18px;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      background: #161b22;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+
+    input {
+      width: 100%;
+      min-height: 44px;
+      padding: 10px 12px;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      background: #0d1117;
+      color: #e6edf3;
+      font: inherit;
+    }
+
+    input:focus {
+      outline: 2px solid #58a6ff;
+      outline-offset: 1px;
+    }
+
+    .hint {
+      margin: 8px 0 0;
+      color: #8b949e;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 20px 0;
+    }
+
+    button {
+      min-height: 42px;
+      padding: 9px 14px;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      background: #21262d;
+      color: #e6edf3;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #30363d;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .primary {
+      background: #238636;
+      border-color: #2ea043;
+    }
+
+    .primary:hover {
+      background: #2ea043;
+    }
+
+    .results {
+      display: grid;
+      gap: 12px;
+    }
+
+    .result {
+      padding: 16px;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      background: #161b22;
+    }
+
+    .result-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .result-title {
+      font-weight: 700;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .pass {
+      background: #173b24;
+      color: #56d364;
+      border: 1px solid #2ea043;
+    }
+
+    .fail {
+      background: #3b1717;
+      color: #ff7b72;
+      border: 1px solid #f85149;
+    }
+
+    .neutral {
+      background: #21262d;
+      color: #8b949e;
+      border: 1px solid #30363d;
+    }
+
+    pre {
+      margin: 0;
+      padding: 12px;
+      overflow-x: auto;
+      border-radius: 8px;
+      background: #0d1117;
+      color: #8b949e;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .summary {
+      margin-top: 24px;
+      padding: 18px;
+      border-radius: 12px;
+      border: 1px solid #30363d;
+      background: #161b22;
+    }
+
+    .summary strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .summary-text {
+      color: #8b949e;
+    }
+
+    .danger-note {
+      margin-top: 18px;
+      color: #8b949e;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 600px) {
+      .shell {
+        width: min(100% - 20px, 900px);
+        padding-top: 22px;
+      }
+
+      h1 {
+        font-size: 23px;
+      }
+
+      .result-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      button {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <main class="shell">
+
+    <header>
+      <h1>BDT Security Test Harness</h1>
+
+      <p class="subtitle">
+        Anonymous boundary tests for the Client Discovery Portal.
+        This page uses the public Supabase client only.
+      </p>
+
+      <div class="warning">
+        <strong>Temporary security tool</strong><br>
+        Use this page only while testing. Remove
+        <code>security-test.html</code> from the production deployment
+        after M2.2 is complete.
+      </div>
+    </header>
+
+
+    <section class="config">
+      <strong>Connection</strong>
+
+      <div
+        id="config-status"
+        class="config-status"
+      >
+        Checking Supabase configuration...
+      </div>
+    </section>
+
+
+    <section class="test-target">
+
+      <label for="submission-id">
+        Test submission UUID
+      </label>
+
+      <input
+        id="submission-id"
+        type="text"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="Paste a test submission UUID"
+      >
+
+      <p class="hint">
+        Use an old/test submission only. UPDATE and DELETE tests
+        intentionally target this UUID.
+      </p>
+
+    </section>
+
+
+    <div class="controls">
+
+      <button
+        id="run-all"
+        class="primary"
+      >
+        Run all safe tests
+      </button>
+
+      <button id="clear-results">
+        Clear results
+      </button>
+
+    </div>
+
+
+    <section class="results">
+
+      <article class="result">
+
+        <div class="result-header">
+          <div class="result-title">
+            1. Anonymous submissions READ
+          </div>
+
+          <span
+            id="status-read-submissions"
+            class="badge neutral"
+          >
+            NOT RUN
+          </span>
+        </div>
+
+        <pre id="output-read-submissions">
+Waiting...
+        </pre>
+
+      </article>
+
+
+      <article class="result">
+
+        <div class="result-header">
+          <div class="result-title">
+            2. Anonymous submissions UPDATE
+          </div>
+
+          <span
+            id="status-update-submissions"
+            class="badge neutral"
+          >
+            NOT RUN
+          </span>
+        </div>
+
+        <pre id="output-update-submissions">
+Waiting...
+        </pre>
+
+      </article>
+
+
+      <article class="result">
+
+        <div class="result-header">
+          <div class="result-title">
+            3. Anonymous submissions DELETE
+          </div>
+
+          <span
+            id="status-delete-submissions"
+            class="badge neutral"
+          >
+            NOT RUN
+          </span>
+        </div>
+
+        <pre id="output-delete-submissions">
+Waiting...
+        </pre>
+
+      </article>
+
+
+      <article class="result">
+
+        <div class="result-header">
+          <div class="result-title">
+            4. Anonymous payments READ
+          </div>
+
+          <span
+            id="status-read-payments"
+            class="badge neutral"
+          >
+            NOT RUN
+          </span>
+        </div>
+
+        <pre id="output-read-payments">
+Waiting...
+        </pre>
+
+      </article>
+
+
+      <article class="result">
+
+        <div class="result-header">
+          <div class="result-title">
+            5. Anonymous payments INSERT
+          </div>
+
+          <span
+            id="status-insert-payments"
+            class="badge neutral"
+          >
+            NOT RUN
+          </span>
+        </div>
+
+        <pre id="output-insert-payments">
+Waiting...
+        </pre>
+
+      </article>
+
+
+      <article class="result">
+
+        <div class="result-header">
+          <div class="result-title">
+            6. Anonymous storage LIST
+          </div>
+
+          <span
+            id="status-list-storage"
+            class="badge neutral"
+          >
+            NOT RUN
+          </span>
+        </div>
+
+        <pre id="output-list-storage">
+Waiting...
+        </pre>
+
+      </article>
+
+
+      <article class="result">
+
+        <div class="result-header">
+          <div class="result-title">
+            7. Anonymous storage READ
+          </div>
+
+          <span
+            id="status-read-storage"
+            class="badge neutral"
+          >
+            NOT RUN
+          </span>
+        </div>
+
+        <pre id="output-read-storage">
+Waiting...
+        </pre>
+
+      </article>
+
+    </section>
+
+
+    <section class="summary">
+
+      <strong>Security test summary</strong>
+
+      <div
+        id="summary-text"
+        class="summary-text"
+      >
+        No tests have been run.
+      </div>
+
+    </section>
+
+
+    <p class="danger-note">
+      The test harness never uses a service-role key and never attempts
+      to authenticate as staff. It is intentionally limited to the
+      anonymous/public boundary.
+    </p>
+
+  </main>
+
+
+  <script src="config.js"></script>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+
+  <script>
+    (function () {
+      'use strict';
+
+      var cfg = window.APP_CONFIG || {};
+
+      var configured =
+        cfg.SUPABASE_URL &&
+        cfg.SUPABASE_ANON_KEY &&
+        !/YOUR-/.test(
+          cfg.SUPABASE_URL + cfg.SUPABASE_ANON_KEY
+        );
+
+      var sb =
+        configured && window.supabase
+          ? window.supabase.createClient(
+              cfg.SUPABASE_URL,
+              cfg.SUPABASE_ANON_KEY
+            )
+          : null;
+
+
+      var results = {};
+
+
+      function el(id) {
+        return document.getElementById(id);
+      }
+
+
+      function setStatus(name, state, message) {
+        var badge = el('status-' + name);
+        var output = el('output-' + name);
+
+        if (!badge || !output) {
+          return;
+        }
+
+        badge.className = 'badge ' + state;
+
+        if (state === 'pass') {
+          badge.textContent = 'PASS';
+        } else if (state === 'fail') {
+          badge.textContent = 'FAIL';
+        } else {
+          badge.textContent = 'NOT RUN';
+        }
+
+        output.textContent = message;
+
+        results[name] = state;
+        updateSummary();
+      }
+
+
+      function formatError(error) {
+        if (!error) {
+          return 'No error returned.';
+        }
+
+        return JSON.stringify(
+          {
+            message: error.message || null,
+            code: error.code || null,
+            details: error.details || null,
+            hint: error.hint || null
+          },
+          null,
+          2
+        );
+      }
+
+
+      function getSubmissionId() {
+        return el('submission-id').value.trim();
+      }
+
+
+      function updateSummary() {
+        var names = Object.keys(results);
+
+        if (!names.length) {
+          el('summary-text').textContent =
+            'No tests have been run.';
+          return;
+        }
+
+        var passed = names.filter(function (name) {
+          return results[name] === 'pass';
+        }).length;
+
+        var failed = names.filter(function (name) {
+          return results[name] === 'fail';
+        }).length;
+
+        el('summary-text').textContent =
+          passed +
+          ' passed, ' +
+          failed +
+          ' failed, ' +
+          (7 - names.length) +
+          ' not run.';
+      }
+
+
+      function clearResults() {
+        results = {};
+
+        [
+          'read-submissions',
+          'update-submissions',
+          'delete-submissions',
+          'read-payments',
+          'insert-payments',
+          'list-storage',
+          'read-storage'
+        ].forEach(function (name) {
+          setStatus(
+            name,
+            'neutral',
+            'Waiting...'
+          );
+        });
+
+        el('summary-text').textContent =
+          'No tests have been run.';
+      }
+
+
+      async function testReadSubmissions() {
+        try {
+          var result = await sb
+            .from('submissions')
+            .select('id')
+            .limit(1);
+
+          if (result.error) {
+            setStatus(
+              'read-submissions',
+              'pass',
+              'Anonymous READ was blocked.\n\n' +
+              formatError(result.error)
+            );
+            return;
+          }
+
+          if (
+            Array.isArray(result.data) &&
+            result.data.length === 0
+          ) {
+            setStatus(
+              'read-submissions',
+              'pass',
+              'Query returned zero rows to the anonymous client.'
+            );
+            return;
+          }
+
+          setStatus(
+            'read-submissions',
+            'fail',
+            'SECURITY FAILURE: anonymous client received submission data.\n\n' +
+            JSON.stringify(result.data, null, 2)
+          );
+        } catch (error) {
+          setStatus(
+            'read-submissions',
+            'pass',
+            'Anonymous READ failed safely.\n\n' +
+            String(error)
+          );
+        }
+      }
+
+
+      async function testUpdateSubmissions() {
+        var id = getSubmissionId();
+
+        if (!id) {
+          setStatus(
+            'update-submissions',
+            'fail',
+            'A test submission UUID is required.'
+          );
+          return;
+        }
+
+        try {
+          var result = await sb
+            .from('submissions')
+            .update({
+              company_name: 'SECURITY_TEST_SHOULD_NOT_APPEAR'
+            })
+            .eq('id', id)
+            .select('id');
+
+          if (result.error) {
+            setStatus(
+              'update-submissions',
+              'pass',
+              'Anonymous UPDATE was blocked.\n\n' +
+              formatError(result.error)
+            );
+            return;
+          }
+
+          if (
+            !result.data ||
+            result.data.length === 0
+          ) {
+            setStatus(
+              'update-submissions',
+              'pass',
+              'Anonymous UPDATE affected zero rows.'
+            );
+            return;
+          }
+
+          setStatus(
+            'update-submissions',
+            'fail',
+            'SECURITY FAILURE: anonymous UPDATE modified a submission.\n\n' +
+            JSON.stringify(result.data, null, 2)
+          );
+        } catch (error) {
+          setStatus(
+            'update-submissions',
+            'pass',
+            'Anonymous UPDATE failed safely.\n\n' +
+            String(error)
+          );
+        }
+      }
+
+
+      async function testDeleteSubmissions() {
+        var id = getSubmissionId();
+
+        if (!id) {
+          setStatus(
+            'delete-submissions',
+            'fail',
+            'A test submission UUID is required.'
+          );
+          return;
+        }
+
+        try {
+          var result = await sb
+            .from('submissions')
+            .delete()
+            .eq('id', id)
+            .select('id');
+
+          if (result.error) {
+            setStatus(
+              'delete-submissions',
+              'pass',
+              'Anonymous DELETE was blocked.\n\n' +
+              formatError(result.error)
+            );
+            return;
+          }
+
+          if (
+            !result.data ||
+            result.data.length === 0
+          ) {
+            setStatus(
+              'delete-submissions',
+              'pass',
+              'Anonymous DELETE affected zero rows.'
+            );
+            return;
+          }
+
+          setStatus(
+            'delete-submissions',
+            'fail',
+            'SECURITY FAILURE: anonymous DELETE removed a submission.\n\n' +
+            JSON.stringify(result.data, null, 2)
+          );
+        } catch (error) {
+          setStatus(
+            'delete-submissions',
+            'pass',
+            'Anonymous DELETE failed safely.\n\n' +
+            String(error)
+          );
+        }
+      }
+
+
+      async function testReadPayments() {
+        try {
+          var result = await sb
+            .from('payments')
+            .select('id')
+            .limit(1);
+
+          if (result.error) {
+            setStatus(
+              'read-payments',
+              'pass',
+              'Anonymous payment READ was blocked.\n\n' +
+              formatError(result.error)
+            );
+            return;
+          }
+
+          if (
+            Array.isArray(result.data) &&
+            result.data.length === 0
+          ) {
+            setStatus(
+              'read-payments',
+              'pass',
+              'Anonymous payment query returned zero rows.'
+            );
+            return;
+          }
+
+          setStatus(
+            'read-payments',
+            'fail',
+            'SECURITY FAILURE: anonymous client received payment data.\n\n' +
+            JSON.stringify(result.data, null, 2)
+          );
+        } catch (error) {
+          setStatus(
+            'read-payments',
+            'pass',
+            'Anonymous payment READ failed safely.\n\n' +
+            String(error)
+          );
+        }
+      }
+
+
+      async function testInsertPayments() {
+        var id = getSubmissionId();
+
+        if (!id) {
+          setStatus(
+            'insert-payments',
+            'fail',
+            'A test submission UUID is required.'
+          );
+          return;
+        }
+
+        try {
+          var result = await sb
+            .from('payments')
+            .insert({
+              submission_id: id,
+              amount: 0.01,
+              currency: 'ZAR',
+              payment_date: '2026-10-03',
+              reference: 'SECURITY-TEST',
+              payer_name: 'SECURITY TEST',
+              proof_path:
+                'payments/security-test/test.pdf',
+              proof_name: 'test.pdf'
+            })
+            .select('id');
+
+          if (result.error) {
+            setStatus(
+              'insert-payments',
+              'pass',
+              'Anonymous payment INSERT was blocked.\n\n' +
+              formatError(result.error)
+            );
+            return;
+          }
+
+          setStatus(
+            'insert-payments',
+            'fail',
+            'SECURITY FAILURE: anonymous client inserted a payment.\n\n' +
+            JSON.stringify(result.data, null, 2)
+          );
+        } catch (error) {
+          setStatus(
+            'insert-payments',
+            'pass',
+            'Anonymous payment INSERT failed safely.\n\n' +
+            String(error)
+          );
+        }
+      }
+
+
+      async function testListStorage() {
+        try {
+          var result = await sb
+            .storage
+            .from('client-files')
+            .list();
+
+          if (result.error) {
+            setStatus(
+              'list-storage',
+              'pass',
+              'Anonymous storage LIST was blocked.\n\n' +
+              formatError(result.error)
+            );
+            return;
+          }
+
+          /*
+           * A private bucket should not expose existing objects
+           * through anonymous listing.
+           */
+          if (
+            !result.data ||
+            result.data.length === 0
+          ) {
+            setStatus(
+              'list-storage',
+              'pass',
+              'Anonymous storage LIST returned no objects.'
+            );
+            return;
+          }
+
+          setStatus(
+            'list-storage',
+            'fail',
+            'SECURITY FAILURE: anonymous client listed storage objects.\n\n' +
+            JSON.stringify(result.data, null, 2)
+          );
+        } catch (error) {
+          setStatus(
+            'list-storage',
+            'pass',
+            'Anonymous storage LIST failed safely.\n\n' +
+            String(error)
+          );
+        }
+      }
+
+
+      async function testReadStorage() {
+        /*
+         * We cannot safely guess a client's file path.
+         *
+         * Instead, this test checks the bucket's public URL behavior
+         * against a deliberately nonexistent object. If the bucket
+         * were public, Supabase would still return a public URL, but
+         * that alone doesn't prove access to real objects.
+         *
+         * Therefore this test is informational rather than a final
+         * security verdict.
+         */
+        var result = await sb
+          .storage
+          .from('client-files')
+          .download(
+            'security-test/nonexistent-file.txt'
+          );
+
+        if (result.error) {
+          setStatus(
+            'read-storage',
+            'pass',
+            'Anonymous storage READ did not expose the requested object.\n\n' +
+            formatError(result.error)
+          );
+          return;
+        }
+
+        setStatus(
+          'read-storage',
+          'fail',
+          'Unexpectedly received an object from anonymous storage READ.'
+        );
+      }
+
+
+      async function runAll() {
+        if (!sb) {
+          alert(
+            'Supabase is not configured. Check config.js.'
+          );
+          return;
+        }
+
+        var button = el('run-all');
+
+        button.disabled = true;
+        button.textContent = 'Running tests...';
+
+        clearResults();
+
+        /*
+         * Run sequentially so the results are easy to follow and
+         * so we do not create unnecessary concurrent requests.
+         */
+        await testReadSubmissions();
+        await testUpdateSubmissions();
+        await testDeleteSubmissions();
+        await testReadPayments();
+        await testInsertPayments();
+        await testListStorage();
+        await testReadStorage();
+
+        button.disabled = false;
+        button.textContent = 'Run all safe tests';
+      }
+
+
+      if (!configured) {
+        el('config-status').textContent =
+          'Supabase configuration is missing or still contains placeholder values.';
+      } else {
+        el('config-status').textContent =
+          'Supabase public configuration detected. No service-role key is used.';
+      }
+
+
+      el('run-all').addEventListener(
+        'click',
+        runAll
+      );
+
+      el('clear-results').addEventListener(
+        'click',
+        clearResults
+      );
+
+
+      updateSummary();
+
+    })();
+  </script>
+
+</body>
+</html>
