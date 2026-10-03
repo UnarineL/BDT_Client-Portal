@@ -543,12 +543,49 @@
     return { text: text, fields: extractPaymentFields(text), source: source };
   }
 
-  async function uploadPaymentProof(submissionId, file) {
+  async function uploadPaymentProof(submissionId, file, attemptId) {
     var safe = file.name.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(-120);
-    var path = 'payments/' + submissionId + '/' + Q.uuid() + '-' + safe;
-    var up = await sb.storage.from(BUCKET).upload(path, file, { upsert: false, contentType: file.type || undefined });
+    var path = 'payments/' + submissionId + '/' + attemptId + '-' + safe;
+    var up = await sb.storage.from(BUCKET).upload(path, file, {
+      upsert: true,
+      contentType: file.type || undefined
+    });
     if (up.error) throw up.error;
     return { path: path, name: file.name, type: file.type || 'application/octet-stream', size: file.size };
+  }
+
+  async function findPaymentAttempt(attemptId) {
+    var r = await sb.from('payments')
+      .select('*')
+      .eq('payment_attempt_id', attemptId)
+      .maybeSingle();
+    if (r.error) throw r.error;
+    return r.data || null;
+  }
+
+  async function findSimilarPayments(submissionId, amount, paymentDate, reference) {
+    var r = await sb.from('payments')
+      .select('id,amount,payment_date,reference,receipt_number,payer_name')
+      .eq('submission_id', submissionId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (r.error) throw r.error;
+
+    var normalizedReference = (reference || '').trim().toLowerCase();
+    return (r.data || []).filter(function (p) {
+      var sameReference = normalizedReference && p.reference &&
+        p.reference.trim().toLowerCase() === normalizedReference;
+      var sameAmountDate = Number(p.amount) === Number(amount) &&
+        p.payment_date === paymentDate;
+      return sameReference || sameAmountDate;
+    });
+  }
+
+  async function removePaymentProof(path) {
+    if (!path) return null;
+    var r = await sb.storage.from(BUCKET).remove([path]);
+    if (r.error) throw r.error;
+    return r.data || null;
   }
 
   async function loadPayments(submissionId) {
@@ -556,7 +593,6 @@
     if (r.error) throw r.error;
     return r.data || [];
   }
-
   function receiptHtml(rec, payment) {
     var company = rec.company_name || 'Client';
     var contact = rec.contact_name || '';
@@ -652,6 +688,7 @@
 
   function openPaymentReview(rec, file, extracted, onSaved) {
     var f = extracted.fields || {};
+    var paymentAttemptId = Q.uuid();
     var amount = h('input', { type: 'number', min: '0', step: '0.01', value: f.amount || '' });
     var date = h('input', { type: 'date', value: f.payment_date || Q.today() });
     var reference = h('input', { type: 'text', value: f.reference || '', placeholder: 'Bank reference' });
@@ -661,25 +698,104 @@
     var err = h('p', { class: 'err-msg', hidden: true });
     var save = h('button', { class: 'btn', type: 'button' }, 'Confirm & save payment');
     var cancel = h('button', { class: 'btn ghost', type: 'button', onClick: onSaved }, 'Cancel');
+
+    async function resolveExistingAttempt() {
+      return await findPaymentAttempt(paymentAttemptId);
+    }
+
     save.addEventListener('click', async function () {
       var n = Number(amount.value);
+      var paymentDate = date.value;
+      var paymentReference = reference.value.trim();
       if (!Number.isFinite(n) || n <= 0) { err.textContent = 'Enter a valid payment amount.'; err.hidden = false; return; }
-      if (!date.value) { err.textContent = 'Payment date is required.'; err.hidden = false; return; }
+      if (!paymentDate) { err.textContent = 'Payment date is required.'; err.hidden = false; return; }
+
       save.disabled = true; cancel.disabled = true; err.hidden = true;
+
       try {
-        var uploaded = await uploadPaymentProof(rec.id, file);
+        var existing = await resolveExistingAttempt();
+        if (existing) {
+          toast('This payment was already recorded.');
+          onSaved();
+          return;
+        }
+
+        var similar = await findSimilarPayments(rec.id, n, paymentDate, paymentReference);
+        if (similar.length) {
+          var first = similar[0];
+          var duplicateMessage = 'A similar payment already exists for this client.';
+          if (first.receipt_number) duplicateMessage += '\nReceipt: ' + first.receipt_number;
+          if (first.reference) duplicateMessage += '\nReference: ' + first.reference;
+          duplicateMessage += '\nAmount/date: ' + money(first.amount) + ' on ' + (first.payment_date || paymentDate);
+          duplicateMessage += '\n\nContinue anyway?';
+          if (!window.confirm(duplicateMessage)) {
+            save.disabled = false;
+            cancel.disabled = false;
+            return;
+          }
+        }
+
+        var uploaded = await uploadPaymentProof(rec.id, file, paymentAttemptId);
+        var userResult = await sb.auth.getUser();
+        var createdBy = userResult.data && userResult.data.user ? userResult.data.user.id : null;
         var r = await sb.from('payments').insert({
-          submission_id: rec.id, amount: n, currency: 'ZAR', payment_date: date.value,
-          reference: reference.value.trim() || null, payer_name: payer.value.trim() || null,
-          bank_name: bank.value.trim() || null, description: description.value.trim() || null,
-          proof_path: uploaded.path, proof_name: uploaded.name,
-          extracted_data: { source: extracted.source, fields: f }, extraction_source: extracted.source,
-          created_by: (await sb.auth.getUser()).data.user ? (await sb.auth.getUser()).data.user.id : null
+          submission_id: rec.id,
+          payment_attempt_id: paymentAttemptId,
+          amount: n,
+          currency: 'ZAR',
+          payment_date: paymentDate,
+          reference: paymentReference || null,
+          payer_name: payer.value.trim() || null,
+          bank_name: bank.value.trim() || null,
+          description: description.value.trim() || null,
+          proof_path: uploaded.path,
+          proof_name: uploaded.name,
+          extracted_data: { source: extracted.source, fields: f },
+          extraction_source: extracted.source,
+          created_by: createdBy
         }).select().single();
-        if (r.error) throw r.error;
-        toast('Payment recorded'); onSaved();
-      } catch (e) { console.error(e); err.textContent = 'Could not save the payment. Make sure the payments migration has been run.'; err.hidden = false; save.disabled = false; cancel.disabled = false; }
+
+        if (r.error) {
+          var verified;
+          try {
+            verified = await resolveExistingAttempt();
+          } catch (verifyError) {
+            console.error('Could not determine whether payment was recorded', verifyError);
+            throw new Error('The payment result could not be confirmed. The proof was kept safely. Retry this same payment instead of creating a new one.');
+          }
+
+          if (verified) {
+            toast('Payment was already recorded. No duplicate created.');
+            onSaved();
+            return;
+          }
+
+          var cleanupError = null;
+          try {
+            await removePaymentProof(uploaded.path);
+          } catch (cleanup) {
+            cleanupError = cleanup;
+            console.error('Could not clean up payment proof', cleanup);
+          }
+
+          if (cleanupError) {
+            throw new Error('The payment was not recorded, but the uploaded proof could not be cleaned up. Keep this window open and retry.');
+          }
+
+          throw new Error('The payment record was not saved. The uploaded proof was cleaned up, so you can safely retry.');
+        }
+
+        toast('Payment recorded');
+        onSaved();
+      } catch (e) {
+        console.error(e);
+        err.textContent = e.message || 'Could not save the payment. Check your connection and retry.';
+        err.hidden = false;
+        save.disabled = false;
+        cancel.disabled = false;
+      }
     });
+
     mount(shell(h('main', { class: 'workspace-main' },
       h('div', { class: 'edit-head' }, h('button', { class: 'back-link', type: 'button', onClick: onSaved }, '‹ Back'), h('p', { class: 'eyebrow' }, 'PAYMENT REVIEW'), h('h1', { class: 'page-title' }, 'Confirm payment details'), h('p', { class: 'page-subtitle' }, 'The system extracted these values from the proof. Review them before anything is recorded.')),
       h('div', { class: 'payment-review-card' },
@@ -688,7 +804,6 @@
         h('div', { class: 'payment-form-grid' }, h('label', { class: 'lbl' }, 'Amount (ZAR)', amount), h('label', { class: 'lbl' }, 'Payment date', date), h('label', { class: 'lbl' }, 'Reference', reference), h('label', { class: 'lbl' }, 'Payer', payer), h('label', { class: 'lbl' }, 'Bank', bank), h('label', { class: 'lbl' }, 'Description', description)), err,
         h('div', { class: 'edit-actions' }, save, cancel)))));
   }
-
   async function showDetail(id, tab, navigate) {
     activeTab = tab || 'overview';
     if (navigate === undefined) navigate = true;
