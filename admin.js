@@ -32,10 +32,25 @@
     ['completed', 'Completed'],
     ['archived', 'Archived']
   ];
+  var STATUS_TRANSITIONS = {
+    new: ['in_review', 'archived'],
+    in_review: ['in_progress', 'archived'],
+    in_progress: ['completed', 'archived'],
+    completed: ['archived'],
+    archived: []
+  };
+
   var statusLabel = function (v) {
     for (var i = 0; i < STATUSES.length; i++) if (STATUSES[i][0] === v) return STATUSES[i][1];
     return v;
   };
+
+  function allowedStatusOptions(current) {
+    var options = [current].concat(STATUS_TRANSITIONS[current] || []);
+    return options.filter(function (value, index) {
+      return options.indexOf(value) === index;
+    });
+  }
 
   var userEmail = '';
   var rows = [];
@@ -790,11 +805,21 @@
       'aria-label': 'Status',
       onChange: async function (e) {
         var v = e.target.value;
+        if (v === rec.status) return;
         var r = await sb.from('submissions').update({ status: v }).eq('id', rec.id);
-        if (r.error) { toast('Could not update status'); e.target.value = rec.status; }
-        else { rec.status = v; toast('Status updated'); renderDetail(rec, urls); }
+        if (r.error) {
+          console.error(r.error);
+          toast('That status change is not allowed');
+          e.target.value = rec.status;
+        } else {
+          rec.status = v;
+          toast('Status updated');
+          renderDetail(rec, urls);
+        }
       }
-    }, STATUSES.map(function (s) { return h('option', { value: s[0], selected: rec.status === s[0] }, s[1]); }));
+    }, allowedStatusOptions(rec.status).map(function (value) {
+      return h('option', { value: value, selected: rec.status === value }, statusLabel(value));
+    }));
 
     var delBtn = h('button', { class: 'btn ghost danger', type: 'button' }, 'Delete');
     delBtn.addEventListener('click', async function () {

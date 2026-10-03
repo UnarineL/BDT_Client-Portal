@@ -96,6 +96,48 @@ before update on public.submissions
 for each row
 execute function public.touch_updated_at();
 
+create or replace function public.enforce_submission_status_transition()
+returns trigger
+language plpgsql
+as $
+begin
+  if new.status = old.status then
+    return new;
+  end if;
+
+  if old.status = 'new'
+     and new.status in ('in_review', 'archived') then
+    return new;
+  end if;
+
+  if old.status = 'in_review'
+     and new.status in ('in_progress', 'archived') then
+    return new;
+  end if;
+
+  if old.status = 'in_progress'
+     and new.status in ('completed', 'archived') then
+    return new;
+  end if;
+
+  if old.status = 'completed'
+     and new.status = 'archived' then
+    return new;
+  end if;
+
+  raise exception 'Invalid submission status transition: % -> %',
+    old.status, new.status
+    using errcode = 'P0001';
+end;
+$;
+
+drop trigger if exists submissions_status_transition on public.submissions;
+
+create trigger submissions_status_transition
+before update of status on public.submissions
+for each row
+execute function public.enforce_submission_status_transition();
+
 -- 3. Hardened anonymous submission lifecycle
 create or replace function public.create_client_submission(
   p_company_name text,
