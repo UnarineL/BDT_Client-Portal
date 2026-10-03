@@ -340,6 +340,7 @@ with check (bucket_id = 'client-files' and public.is_staff());
 create table if not exists public.payments (
   id                uuid primary key default gen_random_uuid(),
   submission_id     uuid not null references public.submissions(id) on delete cascade,
+  payment_attempt_id uuid not null default gen_random_uuid(),
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now(),
   receipt_number    text not null unique default (
@@ -362,6 +363,25 @@ create table if not exists public.payments (
   constraint payments_amount_finite check (amount < 1000000000),
   constraint payments_extracted_size check (octet_length(extracted_data::text) < 20000)
 );
+
+-- Existing installations may predate payment idempotency. Backfill safely
+-- before enforcing NOT NULL, then keep a database-generated default as a
+-- second line of defense for non-UI inserts.
+alter table public.payments
+  add column if not exists payment_attempt_id uuid;
+
+update public.payments
+set payment_attempt_id = gen_random_uuid()
+where payment_attempt_id is null;
+
+alter table public.payments
+  alter column payment_attempt_id set default gen_random_uuid();
+
+alter table public.payments
+  alter column payment_attempt_id set not null;
+
+create unique index if not exists payments_payment_attempt_uidx
+on public.payments (payment_attempt_id);
 
 create index if not exists payments_submission_idx
 on public.payments (submission_id, payment_date desc);
