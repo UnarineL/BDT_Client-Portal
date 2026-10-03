@@ -19,7 +19,7 @@ language sql
 stable
 security definer
 set search_path = public
-as $$
+as $$$
   select exists (
     select 1
     from public.staff s
@@ -99,7 +99,7 @@ execute function public.touch_updated_at();
 create or replace function public.enforce_submission_status_transition()
 returns trigger
 language plpgsql
-as $
+as $$
 begin
   if new.status = old.status then
     return new;
@@ -129,7 +129,7 @@ begin
     old.status, new.status
     using errcode = 'P0001';
 end;
-$;
+$$;
 
 drop trigger if exists submissions_status_transition on public.submissions;
 
