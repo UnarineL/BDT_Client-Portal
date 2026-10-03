@@ -99,7 +99,7 @@ execute function public.touch_updated_at();
 create or replace function public.enforce_submission_status_transition()
 returns trigger
 language plpgsql
-as $
+as $$
 begin
   if new.status = old.status then
     return new;
