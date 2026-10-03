@@ -125,3 +125,62 @@ create policy "staff manage files"
   to authenticated
   using (bucket_id = 'client-files' and public.is_staff())
   with check (bucket_id = 'client-files' and public.is_staff());
+
+
+-- ---------------------------------------------------------------------
+-- 5. Payment records + proof of payment
+--    Financial records are separate from discovery answers.
+--    Staff must explicitly confirm extracted payment details before save.
+-- ---------------------------------------------------------------------
+create table if not exists public.payments (
+  id                uuid primary key default gen_random_uuid(),
+  submission_id     uuid not null references public.submissions(id) on delete cascade,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+  receipt_number    text not null unique default ('RC-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8))),
+  amount            numeric(12,2) not null check (amount >= 0),
+  currency          text not null default 'ZAR',
+  payment_date     date not null,
+  reference         text,
+  payer_name        text,
+  bank_name         text,
+  description       text,
+  proof_path        text not null,
+  proof_name        text not null,
+  extracted_data    jsonb not null default '{}'::jsonb,
+  extraction_source text not null default 'manual' check (extraction_source in ('manual','ocr','pdf_text')),
+  notes             text,
+  created_by        uuid references auth.users(id) on delete set null,
+  constraint payments_amount_finite check (amount < 1000000000),
+  constraint payments_extracted_size check (octet_length(extracted_data::text) < 20000)
+);
+
+create index if not exists payments_submission_idx on public.payments (submission_id, payment_date desc);
+create index if not exists payments_reference_idx on public.payments (reference);
+
+create or replace function public.touch_payment_updated_at()
+returns trigger language plpgsql as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists payments_touch on public.payments;
+create trigger payments_touch
+  before update on public.payments
+  for each row execute function public.touch_payment_updated_at();
+
+alter table public.payments enable row level security;
+grant select, insert, update, delete on public.payments to authenticated;
+
+drop policy if exists "staff manage payments" on public.payments;
+create policy "staff manage payments"
+  on public.payments
+  for all
+  to authenticated
+  using (public.is_staff())
+  with check (public.is_staff());
+
+-- Payment proof lives in the same private bucket as other client files.
+-- Staff access is already covered by the existing "staff manage files" policy.

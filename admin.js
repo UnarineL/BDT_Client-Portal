@@ -435,6 +435,245 @@
     a.remove();
   }
 
+
+  function money(v) {
+    var n = Number(v);
+    return Number.isFinite(n) ? n.toLocaleString('en-ZA', { style: 'currency', currency: 'ZAR' }) : 'R0.00';
+  }
+
+  function escapeHtml(v) {
+    return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
+      return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c];
+    });
+  }
+
+  function normalizeDate(value) {
+    if (!value) return '';
+    var s = String(value).trim();
+    var m = s.match(/\b(20\d{2})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/);
+    if (m) return m[1] + '-' + String(m[2]).padStart(2, '0') + '-' + String(m[3]).padStart(2, '0');
+    m = s.match(/\b(\d{1,2})[-\/.](\d{1,2})[-\/.](20\d{2})\b/);
+    if (m) return m[3] + '-' + String(m[2]).padStart(2, '0') + '-' + String(m[1]).padStart(2, '0');
+    return '';
+  }
+
+  function extractPaymentFields(text) {
+    var t = String(text || '').replace(/\u00a0/g, ' ');
+    var out = { amount: '', payment_date: '', reference: '', payer_name: '', bank_name: '', description: '' };
+    var amountPatterns = [
+      /(?:amount|total|payment amount|transaction amount|paid)\s*[:\-]?\s*(?:zar|r)?\s*([0-9][0-9\s,]*\.?[0-9]{0,2})/i,
+      /(?:zar|r)\s*([0-9][0-9\s,]*\.?[0-9]{2})/i
+    ];
+    for (var i = 0; i < amountPatterns.length; i++) {
+      var am = t.match(amountPatterns[i]);
+      if (am) { out.amount = am[1].replace(/\s/g, '').replace(/,/g, ''); break; }
+    }
+    var datePatterns = [
+      /(?:payment date|transaction date|date)\s*[:\-]?\s*([^\n\r]+)/i,
+      /\b(\d{4}[-\/.]\d{1,2}[-\/.]\d{1,2})\b/,
+      /\b(\d{1,2}[-\/.]\d{1,2}[-\/.]20\d{2})\b/
+    ];
+    for (i = 0; i < datePatterns.length; i++) {
+      var dm = t.match(datePatterns[i]);
+      if (dm) { out.payment_date = normalizeDate(dm[1]); if (out.payment_date) break; }
+    }
+    var ref = t.match(/(?:reference|transaction reference|payment reference|ref(?:erence)? no\.?)\s*[:\-]?\s*([A-Z0-9][A-Z0-9\-\/_ .]{2,40})/i);
+    if (ref) out.reference = ref[1].trim().replace(/\s{2,}/g, ' ');
+    var payer = t.match(/(?:from|payer|account holder|sender|debtor)\s*[:\-]?\s*([^\n\r]{2,80})/i);
+    if (payer) out.payer_name = payer[1].trim();
+    var banks = ['FNB','FIRST NATIONAL BANK','ABSA','STANDARD BANK','CAPITEC','NEDBANK','TYMEBANK','DISCOVERY BANK','INVESTEC','AFRICAN BANK'];
+    for (i = 0; i < banks.length; i++) if (new RegExp('\\b' + banks[i].replace(/ /g, '\\s+') + '\\b', 'i').test(t)) { out.bank_name = banks[i]; break; }
+    var desc = t.match(/(?:description|payment description|reason)\s*[:\-]?\s*([^\n\r]{2,120})/i);
+    if (desc) out.description = desc[1].trim();
+    return out;
+  }
+
+  async function extractPdfText(file, progress) {
+    if (!window.pdfjsLib) throw new Error('PDF extractor is unavailable');
+    var buf = await file.arrayBuffer();
+    var pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+    var chunks = [];
+    var pages = Math.min(pdf.numPages, 8);
+    for (var i = 1; i <= pages; i++) {
+      if (progress) progress('Reading PDF page ' + i + ' of ' + pages + '...');
+      var page = await pdf.getPage(i);
+      var content = await page.getTextContent();
+      chunks.push(content.items.map(function (x) { return x.str; }).join(' '));
+    }
+    return chunks.join('\n');
+  }
+
+  async function extractImageText(file, progress) {
+    if (!window.Tesseract) throw new Error('OCR engine is unavailable');
+    if (progress) progress('Reading proof with OCR...');
+    var result = await window.Tesseract.recognize(file, 'eng', {
+      logger: function (m) {
+        if (progress && m.status === 'recognizing text' && m.progress) progress('OCR ' + Math.round(m.progress * 100) + '%...');
+      }
+    });
+    return result.data && result.data.text ? result.data.text : '';
+  }
+
+  async function extractProof(file, progress) {
+    var type = file.type || '';
+    var text = '';
+    var source = 'manual';
+    if (type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+      text = await extractPdfText(file, progress);
+      source = 'pdf_text';
+    } else if (/^image\//i.test(type)) {
+      text = await extractImageText(file, progress);
+      source = 'ocr';
+    }
+    return { text: text, fields: extractPaymentFields(text), source: source };
+  }
+
+  async function uploadPaymentProof(submissionId, file) {
+    var safe = file.name.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(-120);
+    var path = 'payments/' + submissionId + '/' + Q.uuid() + '-' + safe;
+    var up = await sb.storage.from(BUCKET).upload(path, file, { upsert: false, contentType: file.type || undefined });
+    if (up.error) throw up.error;
+    return { path: path, name: file.name, type: file.type || 'application/octet-stream', size: file.size };
+  }
+
+  async function loadPayments(submissionId) {
+    var r = await sb.from('payments').select('*').eq('submission_id', submissionId).order('payment_date', { ascending: false });
+    if (r.error) throw r.error;
+    return r.data || [];
+  }
+
+  function receiptHtml(rec, payment) {
+    var company = rec.company_name || 'Client';
+    var contact = rec.contact_name || '';
+    return '<!doctype html><html><head><meta charset="utf-8"><title>' + escapeHtml(payment.receipt_number) + '</title>' +
+      '<style>body{font-family:Arial,sans-serif;color:#17232d;padding:42px;max-width:760px;margin:auto}h1{margin:0 0 4px;font-size:30px}p{margin:6px 0;color:#5d6b75}.head{display:flex;justify-content:space-between;gap:30px;border-bottom:1px solid #dce3e7;padding-bottom:22px;margin-bottom:26px}.meta{text-align:right}.box{border:1px solid #dce3e7;border-radius:10px;padding:20px;margin:18px 0}.row{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid #edf1f3}.row:last-child{border:0}.total{font-size:22px;font-weight:700}.small{font-size:12px;color:#71808a;margin-top:28px}</style></head><body>' +
+      '<div class="head"><div><h1>Receipt</h1><p>' + escapeHtml(company) + '</p><p>' + escapeHtml(contact) + '</p></div><div class="meta"><strong>' + escapeHtml(payment.receipt_number) + '</strong><p>' + escapeHtml(payment.payment_date || '') + '</p></div></div>' +
+      '<div class="box"><div class="row"><span>Amount received</span><strong class="total">' + escapeHtml(money(payment.amount)) + '</strong></div>' +
+      '<div class="row"><span>Payment method</span><span>' + escapeHtml(payment.bank_name || 'Electronic payment') + '</span></div>' +
+      '<div class="row"><span>Reference</span><span>' + escapeHtml(payment.reference || 'Not provided') + '</span></div>' +
+      '<div class="row"><span>Payer</span><span>' + escapeHtml(payment.payer_name || company) + '</span></div>' +
+      '<div class="row"><span>Description</span><span>' + escapeHtml(payment.description || 'Payment received') + '</span></div></div>' +
+      '<p>Payment received and recorded for the client above.</p><p class="small">Receipt generated from the Client Discovery Workspace. Keep this receipt together with the supporting proof of payment.</p></body></html>';
+  }
+
+  function generateReceiptPdf(rec, payment) {
+    if (!window.jspdf || !window.jspdf.jsPDF) { toast('Receipt PDF engine is unavailable'); return null; }
+    var doc = new window.jspdf.jsPDF({ unit: 'pt', format: 'a4' });
+    var x = 48, y = 58;
+    doc.setFontSize(26); doc.text('Receipt', x, y);
+    doc.setFontSize(10); doc.setTextColor(95, 107, 117); doc.text(payment.receipt_number, 547, y, { align: 'right' });
+    y += 24; doc.text(rec.company_name || 'Client', x, y); if (rec.contact_name) { y += 15; doc.text(rec.contact_name, x, y); }
+    y += 34; doc.setTextColor(35, 48, 58); doc.setDrawColor(220, 227, 231); doc.line(x, y, 547, y); y += 32;
+    var rows = [
+      ['Amount received', money(payment.amount)],
+      ['Payment date', payment.payment_date || ''],
+      ['Reference', payment.reference || 'Not provided'],
+      ['Payer', payment.payer_name || rec.company_name || ''],
+      ['Bank', payment.bank_name || 'Electronic payment'],
+      ['Description', payment.description || 'Payment received']
+    ];
+    rows.forEach(function (r) { doc.setFontSize(10); doc.setTextColor(95,107,117); doc.text(r[0], x, y); doc.setTextColor(23,35,45); doc.text(String(r[1]), 547, y, { align: 'right' }); y += 26; doc.setDrawColor(238,242,244); doc.line(x, y - 12, 547, y - 12); });
+    y += 18; doc.setFontSize(9); doc.setTextColor(110,120,128); doc.text('Payment received and recorded for the client above.', x, y); y += 14; doc.text('Keep this receipt together with the supporting proof of payment.', x, y);
+    doc.save(payment.receipt_number + '.pdf');
+    return payment.receipt_number;
+  }
+
+  function paymentPanel(rec) {
+    var wrap = h('div', { class: 'payment-workspace' });
+    var fileInput = h('input', { type: 'file', accept: 'application/pdf,image/png,image/jpeg,image/webp', hidden: true });
+    var uploadBtn = h('button', { class: 'btn', type: 'button' }, 'Upload proof of payment');
+    var status = h('span', { class: 'hint payment-status' }, 'PDF or image. Details will be extracted where possible.');
+    uploadBtn.addEventListener('click', function () { fileInput.click(); });
+    fileInput.addEventListener('change', async function () {
+      var file = fileInput.files && fileInput.files[0]; if (!file) return;
+      if (file.size > 25 * 1024 * 1024) { toast('Proof is larger than 25 MB'); return; }
+      uploadBtn.disabled = true;
+      try {
+        status.textContent = 'Reading proof...';
+        var extracted = await extractProof(file, function (m) { status.textContent = m; });
+        openPaymentReview(rec, file, extracted, function () { renderPaymentTab(rec); });
+      } catch (e) {
+        console.error(e); toast('Could not read the proof. You can enter the payment manually.');
+        openPaymentReview(rec, file, { text: '', fields: {}, source: 'manual' }, function () { renderPaymentTab(rec); });
+      } finally { uploadBtn.disabled = false; fileInput.value = ''; status.textContent = 'PDF or image. Details will be extracted where possible.'; }
+    });
+    var list = h('div', { class: 'payment-list' });
+    async function load() {
+      try {
+        var payments = await loadPayments(rec.id);
+        list.textContent = '';
+        if (!payments.length) list.appendChild(h('div', { class: 'empty-state compact' }, h('div', { class: 'empty-icon' }, 'R'), h('strong', null, 'No payments recorded yet'), h('p', null, 'Upload a proof of payment and we will pre-fill the payment record.')));
+        payments.forEach(function (p) { list.appendChild(paymentCard(rec, p)); });
+      } catch (e) { console.error(e); list.appendChild(h('div', { class: 'workspace-error' }, h('p', null, 'Could not load payments. Run the payment migration in Supabase first.'))); }
+    }
+    function renderPaymentTab(r) { paymentPanelRefresh = true; renderDetail(r, {}); }
+    var paymentPanelRefresh = false;
+    wrap.appendChild(h('div', { class: 'panel-toolbar' }, h('div', null, h('h2', null, 'Payments'), h('p', { class: 'hint' }, 'Store payment records and the supporting proof.')), h('div', { class: 'actions' }, uploadBtn, fileInput)));
+    wrap.appendChild(status); wrap.appendChild(list); load();
+    return wrap;
+  }
+
+  function paymentCard(rec, p) {
+    var proof = h('button', { class: 'btn ghost small', type: 'button' }, 'View proof');
+    proof.addEventListener('click', async function () {
+      var r = await sb.storage.from(BUCKET).createSignedUrl(p.proof_path, 300, { download: p.proof_name });
+      if (r.error || !r.data) { toast('Could not open proof'); return; }
+      window.open(r.data.signedUrl, '_blank', 'noopener');
+    });
+    var pdf = h('button', { class: 'btn ghost small', type: 'button' }, 'Receipt PDF');
+    pdf.addEventListener('click', function () { generateReceiptPdf(rec, p); });
+    var mail = h('button', { class: 'btn ghost small', type: 'button' }, 'Email receipt');
+    mail.addEventListener('click', function () {
+      var email = (rec.answers || {}).email || (rec.answers || {}).contact_email || '';
+      var subject = encodeURIComponent('Payment receipt ' + p.receipt_number + ' - ' + (rec.company_name || 'Client'));
+      var body = encodeURIComponent('Please find your payment receipt reference ' + p.receipt_number + '. The receipt PDF can be attached to this email.\n\nAmount received: ' + money(p.amount) + '\nPayment date: ' + p.payment_date + '\nReference: ' + (p.reference || 'Not provided'));
+      window.location.href = 'mailto:' + encodeURIComponent(email) + '?subject=' + subject + '&body=' + body;
+    });
+    return h('article', { class: 'payment-card' },
+      h('div', { class: 'payment-main' }, h('div', null, h('strong', null, money(p.amount)), h('span', { class: 'payment-date' }, p.payment_date || '')), h('span', { class: 'payment-ref' }, p.reference || 'No reference')),
+      h('div', { class: 'payment-meta' }, h('span', null, p.receipt_number), h('span', null, p.payer_name || 'Payer not provided'), h('span', null, p.bank_name || 'Electronic payment')),
+      h('div', { class: 'payment-actions' }, proof, pdf, mail));
+  }
+
+  function openPaymentReview(rec, file, extracted, onSaved) {
+    var f = extracted.fields || {};
+    var amount = h('input', { type: 'number', min: '0', step: '0.01', value: f.amount || '' });
+    var date = h('input', { type: 'date', value: f.payment_date || Q.today() });
+    var reference = h('input', { type: 'text', value: f.reference || '', placeholder: 'Bank reference' });
+    var payer = h('input', { type: 'text', value: f.payer_name || '', placeholder: 'Payer / account holder' });
+    var bank = h('input', { type: 'text', value: f.bank_name || '', placeholder: 'Bank' });
+    var description = h('input', { type: 'text', value: f.description || '', placeholder: 'What the payment is for' });
+    var err = h('p', { class: 'err-msg', hidden: true });
+    var save = h('button', { class: 'btn', type: 'button' }, 'Confirm & save payment');
+    var cancel = h('button', { class: 'btn ghost', type: 'button', onClick: onSaved }, 'Cancel');
+    save.addEventListener('click', async function () {
+      var n = Number(amount.value);
+      if (!Number.isFinite(n) || n <= 0) { err.textContent = 'Enter a valid payment amount.'; err.hidden = false; return; }
+      if (!date.value) { err.textContent = 'Payment date is required.'; err.hidden = false; return; }
+      save.disabled = true; cancel.disabled = true; err.hidden = true;
+      try {
+        var uploaded = await uploadPaymentProof(rec.id, file);
+        var r = await sb.from('payments').insert({
+          submission_id: rec.id, amount: n, currency: 'ZAR', payment_date: date.value,
+          reference: reference.value.trim() || null, payer_name: payer.value.trim() || null,
+          bank_name: bank.value.trim() || null, description: description.value.trim() || null,
+          proof_path: uploaded.path, proof_name: uploaded.name,
+          extracted_data: { source: extracted.source, fields: f }, extraction_source: extracted.source,
+          created_by: (await sb.auth.getUser()).data.user ? (await sb.auth.getUser()).data.user.id : null
+        }).select().single();
+        if (r.error) throw r.error;
+        toast('Payment recorded'); onSaved();
+      } catch (e) { console.error(e); err.textContent = 'Could not save the payment. Make sure the payments migration has been run.'; err.hidden = false; save.disabled = false; cancel.disabled = false; }
+    });
+    mount(shell(h('main', { class: 'workspace-main' },
+      h('div', { class: 'edit-head' }, h('button', { class: 'back-link', type: 'button', onClick: onSaved }, '‹ Back'), h('p', { class: 'eyebrow' }, 'PAYMENT REVIEW'), h('h1', { class: 'page-title' }, 'Confirm payment details'), h('p', { class: 'page-subtitle' }, 'The system extracted these values from the proof. Review them before anything is recorded.')),
+      h('div', { class: 'payment-review-card' },
+        h('div', { class: 'extraction-badge' }, extracted.source === 'ocr' ? 'OCR extracted' : extracted.source === 'pdf_text' ? 'PDF text extracted' : 'Manual entry'),
+        h('div', { class: 'info-grid' }, keyValue('Client', rec.company_name), keyValue('Proof', file.name)),
+        h('div', { class: 'payment-form-grid' }, h('label', { class: 'lbl' }, 'Amount (ZAR)', amount), h('label', { class: 'lbl' }, 'Payment date', date), h('label', { class: 'lbl' }, 'Reference', reference), h('label', { class: 'lbl' }, 'Payer', payer), h('label', { class: 'lbl' }, 'Bank', bank), h('label', { class: 'lbl' }, 'Description', description)), err,
+        h('div', { class: 'edit-actions' }, save, cancel)))));
+  }
+
   async function showDetail(id, tab, navigate) {
     activeTab = tab || 'overview';
     if (navigate === undefined) navigate = true;
@@ -575,6 +814,7 @@
       ['overview', 'Overview'],
       ['discovery', 'Discovery'],
       ['files', 'Files' + (files.length ? ' (' + files.length + ')' : '')],
+      ['payments', 'Payments'],
       ['notes', 'Notes']
     ];
     var tabs = h('nav', { class: 'detail-tabs', 'aria-label': 'Client sections' });
@@ -594,6 +834,8 @@
     var panel;
     if (activeTab === 'discovery') {
       panel = h('div', { class: 'discovery-panel' }, discoverySections(rec));
+    } else if (activeTab === 'payments') {
+      panel = h('div', { class: 'workspace-panel' }, paymentPanel(rec));
     } else if (activeTab === 'files') {
       panel = h('div', { class: 'workspace-panel' },
         h('div', { class: 'panel-toolbar' },
